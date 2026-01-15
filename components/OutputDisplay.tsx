@@ -118,10 +118,11 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ data, request, onD
   };
 
   // Generate Link
-  const handleGenerateLink = () => {
-    const randomId = Math.random().toString(36).substring(7);
-    setShareLink(`https://travel-genius.com/share/p/${randomId}`);
-  };
+ const handleGenerateLink = () => {
+  const randomId = Math.random().toString(36).substring(7);
+  setShareLink(`${window.location.origin}/share/p/${randomId}`);
+};
+
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -450,7 +451,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({ data, request, onD
                          <div className="w-full max-w-[375px] bg-white shadow-2xl min-h-[800px] flex flex-col rounded-lg overflow-hidden border border-slate-200">
                             {/* Fake Browser Bar */}
                             <div className="bg-slate-800 text-white p-3 text-xs flex justify-between items-center sticky top-0 z-20">
-                                <span>travel-genius.com/share...</span>
+                               <span>{window.location.host}/share...</span>
                                 <div className="flex gap-1.5">
                                     <div className="w-2 h-2 bg-red-400 rounded-full"></div>
                                     <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
