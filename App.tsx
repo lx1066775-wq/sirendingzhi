@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { InputForm } from "./components/InputForm";
 import { OutputDisplay } from "./components/OutputDisplay";
 import { TripRequest, ItineraryData } from "./types";
-import { generateItinerary, translateItinerary } from "./services/geminiService";
+import { generateItinerary, translateItinerary, GeminiModel } from "./services/geminiService";
 import { TEMPLATES } from "./services/templates";
 
 const DEFAULT_REQUEST: TripRequest = {
@@ -23,10 +23,7 @@ const DEFAULT_REQUEST: TripRequest = {
   requirements: "",
 };
 
-type GeminiModel = "gemini-2.5-flash" | "gemini-2.5-pro";
-
 const App: React.FC = () => {
-  const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState<GeminiModel>("gemini-2.5-flash");
 
   const [request, setRequest] = useState<TripRequest>(DEFAULT_REQUEST);
@@ -35,12 +32,6 @@ const App: React.FC = () => {
   const [data, setData] = useState<ItineraryData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (process.env.API_KEY) {
-      setApiKey(process.env.API_KEY);
-    }
-  }, []);
 
   const handleRequestChange = (field: keyof TripRequest, value: any) => {
     setRequest((prev) => ({ ...prev, [field]: value }));
@@ -74,11 +65,8 @@ const App: React.FC = () => {
         }
         setData(templateData);
       } else {
-        // MODE 2: AI Mode
-        if (!apiKey) {
-          throw new Error("请先输入您的 Google Gemini API Key，或选择一个系统模板。");
-        }
-        const result = await generateItinerary(apiKey, request, model);
+        // MODE 2: AI Mode (走 Worker，不需要 Key)
+        const result = await generateItinerary(request, model);
         setData(result);
       }
     } catch (err: any) {
@@ -91,16 +79,11 @@ const App: React.FC = () => {
   const handleTranslate = async () => {
     if (!data) return;
 
-    if (!apiKey) {
-      setError("翻译需要 API Key，请先配置 Key。");
-      return;
-    }
-
     setLoading(true);
     setError(null);
 
     try {
-      const translatedData = await translateItinerary(apiKey, data, model);
+      const translatedData = await translateItinerary(data, model);
       setData(translatedData);
       setRequest((prev) => ({ ...prev, mode: "C" }));
     } catch (err: any) {
@@ -120,57 +103,34 @@ const App: React.FC = () => {
               T
             </div>
             <h1 className="text-lg font-bold text-slate-800 tracking-tight">
-              TravelGenius{" "}
-              <span className="text-slate-400 font-normal">| 智能行程生成器</span>
+              TravelGenius <span className="text-slate-400 font-normal">| 智能行程生成器</span>
             </h1>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* 模型切换按钮 */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setModel("gemini-2.5-flash")}
-                className={`px-2.5 py-1.5 rounded-md text-xs border ${
-                  model === "gemini-2.5-flash"
-                    ? "bg-blue-50 border-blue-300 text-blue-700"
-                    : "bg-white border-slate-300 text-slate-600"
-                }`}
-              >
-                快速（Flash）
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setModel("gemini-2.5-pro")}
-                className={`px-2.5 py-1.5 rounded-md text-xs border ${
-                  model === "gemini-2.5-pro"
-                    ? "bg-blue-50 border-blue-300 text-blue-700"
-                    : "bg-white border-slate-300 text-slate-600"
-                }`}
-              >
-                高质量（Pro）
-              </button>
-            </div>
-
-            {!process.env.API_KEY && (
-              <input
-                type="password"
-                placeholder="粘贴 Gemini API Key"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="px-3 py-1.5 border border-slate-300 rounded-md text-sm w-48 focus:w-64 transition-all outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            )}
-
-            <a
-              href="https://aistudio.google.com/app/apikey"
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-blue-600 hover:underline"
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setModel("gemini-2.5-flash")}
+              className={`px-2.5 py-1.5 rounded-md text-xs border ${
+                model === "gemini-2.5-flash"
+                  ? "bg-blue-50 border-blue-300 text-blue-700"
+                  : "bg-white border-slate-300 text-slate-600"
+              }`}
             >
-              获取 Key
-            </a>
+              快速（Flash）
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setModel("gemini-2.5-pro")}
+              className={`px-2.5 py-1.5 rounded-md text-xs border ${
+                model === "gemini-2.5-pro"
+                  ? "bg-blue-50 border-blue-300 text-blue-700"
+                  : "bg-white border-slate-300 text-slate-600"
+              }`}
+            >
+              高质量（Pro）
+            </button>
           </div>
         </div>
       </header>
@@ -197,12 +157,7 @@ const App: React.FC = () => {
             </div>
           )}
 
-          <OutputDisplay
-            data={data}
-            request={request}
-            onDataChange={setData}
-            onTranslate={handleTranslate}
-          />
+          <OutputDisplay data={data} request={request} onDataChange={setData} onTranslate={handleTranslate} />
         </div>
       </main>
     </div>
