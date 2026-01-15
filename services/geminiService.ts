@@ -2,55 +2,115 @@ import { ItineraryData, TripRequest } from "../types";
 
 export type GeminiModel = "gemini-2.5-flash" | "gemini-2.5-pro";
 
-// 和你原来保持一致：系统提示词仍然由前端生成，然后交给 Worker 转发给 Gemini
 const getSystemInstruction = (mode: "A" | "B" | "C") => `
 You are a professional travel agency itinerary generator. You must generate a strict JSON object describing a travel itinerary based on the user's request.
 
-**Role & Tone:**
-- Mode A (Domestic): Pure Simplified Chinese. Grounded, practical. Focus on "worry-free".
-- Mode B (SG/MY): Simplified Chinese main text, with English professional terms (Private Tour, Pick-up, etc.) mixed in.
-- Mode C (English): Professional English throughout. High-end, service-oriented, elegant tone.
+ABSOLUTE RULES:
+- Return ONLY raw JSON. No markdown. No \`\`\`json fences. No commentary. No extra text.
+- The JSON MUST include: template_code, title, mode, route_overview, tags, duration_days, duration_nights, defaults, itinerary, includes, excludes, notes, signature.
+- defaults MUST include: transport, target_audience.
+- itinerary MUST be an array. Each item MUST include: day_no, title, highlights, segments, stay, meals, tips.
+- meals MUST include: breakfast, lunch, dinner (string, can be empty).
 
-**Template Constraints:**
-- **Template Code:** Must be uppercase with hyphens, e.g., "XJ-ALTAY-9D8N-WINTER-001".
-- **Route:** If the user provides a draft route in "requirements", you MUST follow it strictly. Do not add new attractions unless asked.
-- **Stay:** Use specific hotel descriptions or placeholders like "{4钻+ 观景房}".
-- **Meals:** Detailed description.
-- **Titles:** Catchy and professional.
-
-**Output Format:**
-Return ONLY a valid JSON object matching the defined schema.
+Role & Tone:
+- Mode A: Pure Simplified Chinese. Practical, worry-free.
+- Mode B: Simplified Chinese + some English travel terms mixed in.
+- Mode C: Professional English, high-end tone.
 `;
 
-// 你之前的 schema 是给 SDK 用的；Worker 直连 REST 不强制 schema 校验。
-// 我们让模型仍“只输出 JSON”，然后前端 JSON.parse。
-// （如果你想继续用 schema 校验，我可以再给你 Worker 版 schema 强校验）
+function extractJson(text: string): string {
+  let t = (text || "").trim();
+
+  // Remove ```json fences if any
+  t = t.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
+
+  // Try slice between first { and last }
+  const firstBrace = t.indexOf("{");
+  const lastBrace = t.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    t = t.slice(firstBrace, lastBrace + 1).trim();
+  }
+
+  return t;
+}
+
+function normalizeItinerary(obj: any): ItineraryData {
+  const x: any = obj && typeof obj === "object" ? obj : {};
+
+  // top-level required
+  x.template_code = x.template_code || "XJ-CUSTOM-ITIN-001";
+  x.title = x.title || "定制行程";
+  x.mode = x.mode || "A";
+  x.route_overview = x.route_overview || "";
+  x.tags = Array.isArray(x.tags) ? x.tags : [];
+
+  // duration
+  const inferredDays = Array.isArray(x.itinerary) ? x.itinerary.length : 0;
+  x.duration_days = Number.isFinite(x.duration_days) ? x.duration_days : inferredDays;
+  x.duration_nights = Number.isFinite(x.duration_nights)
+    ? x.duration_nights
+    : Math.max(0, (x.duration_days || 0) - 1);
+
+  // defaults (avoid crash: defaults.target_audience)
+  if (!x.defaults || typeof x.defaults !== "object") x.defaults = {};
+  x.defaults.transport = x.defaults.transport || "Private Tour Vehicle";
+  x.defaults.target_audience = x.defaults.target_audience || "";
+
+  // itinerary
+  x.itinerary = Array.isArray(x.itinerary) ? x.itinerary : [];
+  x.itinerary = x.itinerary.map((d: any, idx: number) => {
+    const day: any = d && typeof d === "object" ? d : {};
+    day.day_no = Number.isFinite(day.day_no) ? day.day_no : idx + 1;
+    day.title = day.title || `Day ${idx + 1}`;
+    day.highlights = Array.isArray(day.highlights) ? day.highlights : [];
+
+    day.segments = Array.isArray(day.segments) ? day.segments : [];
+    day.segments = day.segments.map((s: any) => ({
+      type: s?.type || "sight",
+      description: s?.description || "",
+      detail: s?.detail || "",
+    }));
+
+    day.stay = day.stay || "";
+
+    if (!day.meals || typeof day.meals !== "object") day.meals = {};
+    day.meals.breakfast = typeof day.meals.breakfast === "string" ? day.meals.breakfast : "";
+    day.meals.lunch = typeof day.meals.lunch === "string" ? day.meals.lunch : "";
+    day.meals.dinner = typeof day.meals.dinner === "string" ? day.meals.dinner : "";
+
+    day.tips = Array.isArray(day.tips) ? day.tips : [];
+    return day;
+  });
+
+  // includes/excludes/notes/signature
+  x.includes = Array.isArray(x.includes) ? x.includes : [];
+  x.excludes = Array.isArray(x.excludes) ? x.excludes : [];
+  x.notes = Array.isArray(x.notes) ? x.notes : [];
+  x.signature = typeof x.signature === "string" ? x.signature : "";
+
+  return x as ItineraryData;
+}
+
 async function callWorkerGenerate(model: GeminiModel, prompt: string, systemInstruction?: string) {
+  const strict = `Return ONLY raw JSON. No markdown. No commentary.\n`;
+
+  const merged = systemInstruction
+    ? `${strict}${systemInstruction}\n\n---\n\n${prompt}`
+    : `${strict}${prompt}`;
+
   const payload: any = {
     model,
     contents: [
       {
         role: "user",
-        parts: [{ text: prompt }],
+        parts: [{ text: merged }],
       },
     ],
-    // generationConfig 可按需加参数
     generationConfig: {
       temperature: 0.6,
       maxOutputTokens: 8192,
     },
   };
-
-  // 把 systemInstruction 作为“系统层提示”拼进 prompt（最兼容做法）
-  // 也可以改 Worker 支持真正的 system role（后续我可给你升级）
-  if (systemInstruction) {
-    payload.contents = [
-      {
-        role: "user",
-        parts: [{ text: `${systemInstruction}\n\n---\n\n${prompt}` }],
-      },
-    ];
-  }
 
   const res = await fetch("/api/generate", {
     method: "POST",
@@ -58,14 +118,13 @@ async function callWorkerGenerate(model: GeminiModel, prompt: string, systemInst
     body: JSON.stringify(payload),
   });
 
-  const data = await res.json();
+  const data = await res.json().catch(() => ({} as any));
   if (!res.ok) {
     throw new Error(data?.error || "Worker API error");
   }
 
   const text = data?.text;
   if (!text) throw new Error("Empty response from Worker/Gemini");
-
   return text as string;
 }
 
@@ -86,8 +145,17 @@ Important: If specific Route details are provided in 'Requirements', map them ex
 Language: Mode ${request.mode} rules apply strictly.
 `;
 
-  const text = await callWorkerGenerate(model, prompt, getSystemInstruction(request.mode));
-  return JSON.parse(text) as ItineraryData;
+  const raw = await callWorkerGenerate(model, prompt, getSystemInstruction(request.mode));
+  const cleaned = extractJson(raw);
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    throw new Error("Model output is not valid JSON");
+  }
+
+  return normalizeItinerary(parsed);
 };
 
 export const translateItinerary = async (
@@ -108,6 +176,15 @@ Input JSON:
 ${JSON.stringify(data)}
 `;
 
-  const text = await callWorkerGenerate(model, prompt);
-  return JSON.parse(text) as ItineraryData;
+  const raw = await callWorkerGenerate(model, prompt);
+  const cleaned = extractJson(raw);
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    throw new Error("Translation output is not valid JSON");
+  }
+
+  return normalizeItinerary(parsed);
 };
