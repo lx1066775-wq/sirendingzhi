@@ -1,8 +1,8 @@
-import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { ItineraryData, TripRequest } from "../types";
 
 export type GeminiModel = "gemini-2.5-flash" | "gemini-2.5-pro";
 
+// 和你原来保持一致：系统提示词仍然由前端生成，然后交给 Worker 转发给 Gemini
 const getSystemInstruction = (mode: "A" | "B" | "C") => `
 You are a professional travel agency itinerary generator. You must generate a strict JSON object describing a travel itinerary based on the user's request.
 
@@ -22,72 +22,57 @@ You are a professional travel agency itinerary generator. You must generate a st
 Return ONLY a valid JSON object matching the defined schema.
 `;
 
-const itinerarySchema: Schema = {
-  type: Type.OBJECT,
-  properties: {
-    template_code: { type: Type.STRING, description: "Format: DEST-THEME-DAYS-SEQ, e.g. XJ-ALTAY-9D8N-001" },
-    title: { type: Type.STRING },
-    mode: { type: Type.STRING, enum: ["A", "B", "C"] },
-    route_overview: { type: Type.STRING },
-    tags: { type: Type.ARRAY, items: { type: Type.STRING } },
-    duration_days: { type: Type.INTEGER },
-    duration_nights: { type: Type.INTEGER },
-    defaults: {
-      type: Type.OBJECT,
-      properties: {
-        transport: { type: Type.STRING },
-        target_audience: { type: Type.STRING },
+// 你之前的 schema 是给 SDK 用的；Worker 直连 REST 不强制 schema 校验。
+// 我们让模型仍“只输出 JSON”，然后前端 JSON.parse。
+// （如果你想继续用 schema 校验，我可以再给你 Worker 版 schema 强校验）
+async function callWorkerGenerate(model: GeminiModel, prompt: string, systemInstruction?: string) {
+  const payload: any = {
+    model,
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: prompt }],
       },
+    ],
+    // generationConfig 可按需加参数
+    generationConfig: {
+      temperature: 0.6,
+      maxOutputTokens: 8192,
     },
-    itinerary: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          day_no: { type: Type.INTEGER },
-          title: { type: Type.STRING },
-          highlights: { type: Type.ARRAY, items: { type: Type.STRING } },
-          segments: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                type: { type: Type.STRING, enum: ["transfer", "sight", "experience", "free", "tip", "branch"] },
-                description: { type: Type.STRING },
-                detail: { type: Type.STRING },
-              },
-            },
-          },
-          stay: { type: Type.STRING },
-          meals: {
-            type: Type.OBJECT,
-            properties: {
-              breakfast: { type: Type.STRING },
-              lunch: { type: Type.STRING },
-              dinner: { type: Type.STRING },
-            },
-          },
-          tips: { type: Type.ARRAY, items: { type: Type.STRING } },
-        },
+  };
+
+  // 把 systemInstruction 作为“系统层提示”拼进 prompt（最兼容做法）
+  // 也可以改 Worker 支持真正的 system role（后续我可给你升级）
+  if (systemInstruction) {
+    payload.contents = [
+      {
+        role: "user",
+        parts: [{ text: `${systemInstruction}\n\n---\n\n${prompt}` }],
       },
-    },
-    includes: { type: Type.ARRAY, items: { type: Type.STRING } },
-    excludes: { type: Type.ARRAY, items: { type: Type.STRING } },
-    notes: { type: Type.ARRAY, items: { type: Type.STRING } },
-    signature: { type: Type.STRING },
-  },
-  required: ["title", "itinerary", "includes", "excludes", "template_code"],
-};
+    ];
+  }
+
+  const res = await fetch("/api/generate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.error || "Worker API error");
+  }
+
+  const text = data?.text;
+  if (!text) throw new Error("Empty response from Worker/Gemini");
+
+  return text as string;
+}
 
 export const generateItinerary = async (
-  apiKey: string,
   request: TripRequest,
   model: GeminiModel = "gemini-2.5-flash"
 ): Promise<ItineraryData> => {
-  if (!apiKey) throw new Error("API Key is missing");
-
-  const ai = new GoogleGenAI({ apiKey });
-
   const prompt = `
 Destination: ${request.destination}
 Duration: ${request.days} days
@@ -101,36 +86,14 @@ Important: If specific Route details are provided in 'Requirements', map them ex
 Language: Mode ${request.mode} rules apply strictly.
 `;
 
-  try {
-    const response = await ai.models.generateContent({
-      model, // ✅ 动态模型
-      contents: prompt,
-      config: {
-        systemInstruction: getSystemInstruction(request.mode),
-        responseMimeType: "application/json",
-        responseSchema: itinerarySchema,
-      },
-    });
-
-    const text = response.text;
-    if (!text) throw new Error("Empty response from AI");
-
-    return JSON.parse(text) as ItineraryData;
-  } catch (error) {
-    console.error("Gemini API Error:", error);
-    throw error;
-  }
+  const text = await callWorkerGenerate(model, prompt, getSystemInstruction(request.mode));
+  return JSON.parse(text) as ItineraryData;
 };
 
 export const translateItinerary = async (
-  apiKey: string,
   data: ItineraryData,
   model: GeminiModel = "gemini-2.5-flash"
 ): Promise<ItineraryData> => {
-  if (!apiKey) throw new Error("API Key is missing for translation");
-
-  const ai = new GoogleGenAI({ apiKey });
-
   const prompt = `
 Task: Translate the following travel itinerary JSON from Chinese to Professional English.
 
@@ -145,21 +108,6 @@ Input JSON:
 ${JSON.stringify(data)}
 `;
 
-  try {
-    const response = await ai.models.generateContent({
-      model, // ✅ 动态模型
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: itinerarySchema,
-      },
-    });
-
-    const text = response.text;
-    if (!text) throw new Error("Translation failed");
-    return JSON.parse(text) as ItineraryData;
-  } catch (error) {
-    console.error("Translation Error:", error);
-    throw error;
-  }
+  const text = await callWorkerGenerate(model, prompt);
+  return JSON.parse(text) as ItineraryData;
 };
