@@ -1,31 +1,33 @@
-import React, { useState, useEffect } from 'react';
-import { InputForm } from './components/InputForm';
-import { OutputDisplay } from './components/OutputDisplay';
-import { TripRequest, ItineraryData } from './types';
-import { generateItinerary, translateItinerary, GeminiModel } from './services/geminiService';
-import { TEMPLATES } from './services/templates';
+import React, { useState, useEffect } from "react";
+import { InputForm } from "./components/InputForm";
+import { OutputDisplay } from "./components/OutputDisplay";
+import { TripRequest, ItineraryData } from "./types";
+import { generateItinerary, translateItinerary } from "./services/geminiService";
+import { TEMPLATES } from "./services/templates";
 
 const DEFAULT_REQUEST: TripRequest = {
-  destination: '新疆',
+  destination: "新疆",
   days: 9,
   adults: 5,
   children: 0,
   adultPrice: 4500,
   childPrice: 2500,
-  currency: '¥',
-  mode: 'A',
-  depositType: 'percent',
+  currency: "¥",
+  mode: "A",
+  depositType: "percent",
   depositValue: 30,
-  contactName: '热娜',
-  contactInfo: '13039498591',
+  contactName: "热娜",
+  contactInfo: "13039498591",
   includeMeals: false,
-  guideMode: 'Driver-Guide',
-  requirements: '',
+  guideMode: "Driver-Guide",
+  requirements: "",
 };
 
+type GeminiModel = "gemini-2.5-flash" | "gemini-2.5-pro";
+
 const App: React.FC = () => {
-  const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState<GeminiModel>('gemini-2.5-flash'); // ✅ 新增：默认 Flash
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState<GeminiModel>("gemini-2.5-flash");
 
   const [request, setRequest] = useState<TripRequest>(DEFAULT_REQUEST);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -48,11 +50,11 @@ const App: React.FC = () => {
     setSelectedTemplateId(id);
     if (id && TEMPLATES[id]) {
       const tpl = TEMPLATES[id];
-      setRequest(prev => ({
+      setRequest((prev) => ({
         ...prev,
-        destination: '新疆',
+        destination: "新疆",
         days: tpl.duration_days,
-        requirements: ''
+        requirements: "",
       }));
     }
   };
@@ -64,23 +66,23 @@ const App: React.FC = () => {
     try {
       if (selectedTemplateId && TEMPLATES[selectedTemplateId]) {
         // MODE 1: Template Mode
-        await new Promise(resolve => setTimeout(resolve, 600));
+        await new Promise((resolve) => setTimeout(resolve, 600));
         const templateData = JSON.parse(JSON.stringify(TEMPLATES[selectedTemplateId]));
 
-        if (request.mode !== 'C') {
+        if (request.mode !== "C") {
           templateData.mode = request.mode;
         }
         setData(templateData);
       } else {
         // MODE 2: AI Mode
         if (!apiKey) {
-          throw new Error('请先输入您的 Google Gemini API Key，或选择一个系统模板。');
+          throw new Error("请先输入您的 Google Gemini API Key，或选择一个系统模板。");
         }
-        const result = await generateItinerary(apiKey, request, model); // ✅ 传入 model
+        const result = await generateItinerary(apiKey, request, model);
         setData(result);
       }
     } catch (err: any) {
-      setError(err.message || '生成行程失败，请重试。');
+      setError(err?.message || "生成行程失败，请重试。");
     } finally {
       setLoading(false);
     }
@@ -88,24 +90,27 @@ const App: React.FC = () => {
 
   const handleTranslate = async () => {
     if (!data) return;
+
     if (!apiKey) {
-      setError('翻译需要 API Key，请先配置 Key。');
+      setError("翻译需要 API Key，请先配置 Key。");
       return;
     }
+
     setLoading(true);
     setError(null);
+
     try {
-      const translatedData = await translateItinerary(apiKey, data, model); // ✅ 传入 model
+      const translatedData = await translateItinerary(apiKey, data, model);
       setData(translatedData);
-      setRequest(prev => ({ ...prev, mode: 'C' }));
+      setRequest((prev) => ({ ...prev, mode: "C" }));
     } catch (err: any) {
-      setError(err.message || '翻译失败，请重试。');
+      setError(err?.message || "翻译失败，请重试。");
     } finally {
       setLoading(false);
     }
   };
 
-    return (
+  return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
@@ -115,7 +120,8 @@ const App: React.FC = () => {
               T
             </div>
             <h1 className="text-lg font-bold text-slate-800 tracking-tight">
-              TravelGenius <span className="text-slate-400 font-normal">| 智能行程生成器</span>
+              TravelGenius{" "}
+              <span className="text-slate-400 font-normal">| 智能行程生成器</span>
             </h1>
           </div>
 
@@ -201,4 +207,6 @@ const App: React.FC = () => {
       </main>
     </div>
   );
+};
 
+export default App;
