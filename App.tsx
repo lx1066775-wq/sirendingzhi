@@ -105,18 +105,22 @@ const App: React.FC = () => {
     }
   };
 
-  return (
+    return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-lg">T</div>
-            <h1 className="text-lg font-bold text-slate-800 tracking-tight">TravelGenius <span className="text-slate-400 font-normal">| 智能行程生成器</span></h1>
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-lg">
+              T
+            </div>
+            <h1 className="text-lg font-bold text-slate-800 tracking-tight">
+              TravelGenius <span className="text-slate-400 font-normal">| 智能行程生成器</span>
+            </h1>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* ✅ 模型切换按钮 */}
+            {/* 模型切换按钮 */}
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -152,14 +156,21 @@ const App: React.FC = () => {
                 className="px-3 py-1.5 border border-slate-300 rounded-md text-sm w-48 focus:w-64 transition-all outline-none focus:ring-2 focus:ring-blue-500"
               />
             )}
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">获取 Key</a>
+
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-blue-600 hover:underline"
+            >
+              获取 Key
+            </a>
           </div>
         </div>
       </header>
 
       {/* Main Layout */}
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-64px)]">
-
         {/* Left: Input Form */}
         <div className="lg:col-span-4 h-full">
           <InputForm
@@ -176,3 +187,18 @@ const App: React.FC = () => {
         <div className="lg:col-span-8 h-full flex flex-col">
           {error && (
             <div className="mb-4 bg-red-50 text-red-700 px-4 py-3 rounded-lg border border-red-200 text-sm flex items-center gap-2">
+              <span>⚠️</span> {error}
+            </div>
+          )}
+
+          <OutputDisplay
+            data={data}
+            request={request}
+            onDataChange={setData}
+            onTranslate={handleTranslate}
+          />
+        </div>
+      </main>
+    </div>
+  );
+
