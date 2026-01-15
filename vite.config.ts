@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     // ✅ GitHub Pages 子路径（仓库名）
-    base: '/sirendingzhi/',
+    base: './',
 
     server: {
       port: 3000,
